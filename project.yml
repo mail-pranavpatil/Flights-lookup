@@ -17,7 +17,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: WhereIsThatPlane
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.WhereIsThatPlane
+        PRODUCT_BUNDLE_IDENTIFIER: com.intellobyte.flightlookup
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Where Is That Plane?"
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Your location helps find aircraft flying near you."

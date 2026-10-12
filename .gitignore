@@ -1,0 +1,7 @@
+*.p12
+*.p8
+*.key
+*.cer
+*.mobileprovision
+*.xcodeproj/
+.DS_Store

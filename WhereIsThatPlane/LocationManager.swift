@@ -27,26 +27,34 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-            manager.requestLocation()
+    // CLLocationManager calls its delegate on the thread it was created on (main here); these hop
+    // explicitly so the conformance is valid under Swift 6 isolation checking.
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            authorizationStatus = status
+            if status == .authorizedWhenInUse || status == .authorizedAlways { self.manager.requestLocation() }
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        location = locations.last
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let last = locations.last else { return }
+        Task { @MainActor in didUpdate(last) }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in locationError = "Couldn't get your location. Check that Location Services are enabled." }
+    }
+
+    private func didUpdate(_ last: CLLocation) {
+        location = last
         locationError = nil
-        if let last = locations.last { SkyAlerts.saveLocation(last.coordinate) }
-        guard let last = locations.last, !geocoder.isGeocoding else { return }
+        SkyAlerts.saveLocation(last.coordinate)
+        guard !geocoder.isGeocoding else { return }
         Task {
             guard let mark = try? await geocoder.reverseGeocodeLocation(last).first else { return }
             let name = [mark.locality, mark.administrativeArea].compactMap { $0 }.joined(separator: ", ")
             placeName = name.isEmpty ? nil : name
         }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        locationError = "Couldn't get your location. Check that Location Services are enabled."
     }
 }

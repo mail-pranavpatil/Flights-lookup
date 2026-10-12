@@ -94,6 +94,17 @@ enum SkyAppearance: CaseIterable, Equatable {
     }
 }
 
+/// The clock the theme and greeting follow. DEBUG builds accept `-SkyClockHour N` (screenshots).
+enum SkyClock {
+    static var now: Date {
+        #if DEBUG
+        if let hour = UserDefaults.standard.string(forKey: "SkyClockHour").flatMap(Int.init),
+           let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) { return date }
+        #endif
+        return Date()
+    }
+}
+
 private struct SkyAppearanceKey: EnvironmentKey {
     static let defaultValue = SkyAppearance.day
 }

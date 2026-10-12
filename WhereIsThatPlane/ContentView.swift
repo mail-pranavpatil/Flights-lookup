@@ -9,7 +9,7 @@ struct ContentView: View {
     @State private var detailsItem: RankedAircraft?
     /// adsbdb routes by callsign (unverified; views check them with `Aircraft.verifiedRoute`).
     @State private var routes: [String: FlightRoute] = [:]
-    @State private var appearance = SkyAppearance.current(for: .now)
+    @State private var appearance = SkyAppearance.current(for: SkyClock.now)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -38,12 +38,24 @@ struct ContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .padding(.bottom, 32)
+                // Keep cards phone-width on iPad.
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
         }
         .background(SkyBackground())
         .environment(\.skyAppearance, appearance)
         .preferredColorScheme(appearance.colorScheme)
         .task { await model.refresh(using: locationManager) }
+        #if DEBUG
+        // Screenshot hook: `-OpenDetails YES` opens the details sheet once a plane (and its route) has loaded.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "OpenDetails") else { return }
+            while model.selected == nil { try? await Task.sleep(for: .seconds(1)) }
+            try? await Task.sleep(for: .seconds(6))
+            detailsItem = model.selected
+        }
+        #endif
         // Re-check the theme at each local hour boundary while the app is on screen (no background timer).
         .task {
             while !Task.isCancelled {
@@ -84,7 +96,7 @@ struct ContentView: View {
     private func refresh() { Task { await model.refresh(using: locationManager) } }
 
     private func updateAppearance() {
-        let now = SkyAppearance.current(for: .now)
+        let now = SkyAppearance.current(for: SkyClock.now)
         guard now != appearance else { return }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 1.2)) { appearance = now }
     }
@@ -194,7 +206,7 @@ struct SkyHeaderView: View {
                 .accessibilityLabel("Sky alerts settings")
             }
             HStack(spacing: 8) {
-                Text(SkyAppearance.greeting(for: .now)).font(.subheadline).foregroundStyle(sky.secondary)
+                Text(SkyAppearance.greeting(for: SkyClock.now)).font(.subheadline).foregroundStyle(sky.secondary)
                 FreshnessBadge(lastUpdated: lastUpdated)
             }
             Text(headline)

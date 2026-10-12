@@ -1,0 +1,100 @@
+name: App Store screenshots
+
+# Captures real simulator screenshots (live planes near the given spot) and frames them
+# into every App Store Connect slot. Download the "AppStoreScreenshots" artifact when done.
+on:
+  workflow_dispatch:
+    inputs:
+      latitude:
+        description: Simulated location latitude (busy airspace works best)
+        default: '19.09'
+      longitude:
+        description: Simulated location longitude
+        default: '72.87'
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build for simulator
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project WhereIsThatPlane.xcodeproj \
+            -scheme WhereIsThatPlane \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Capture screenshots
+        env:
+          LAT: ${{ inputs.latitude }}
+          LON: ${{ inputs.longitude }}
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Debug-iphonesimulator/WhereIsThatPlane.app
+          BUNDLE=com.intellobyte.flightlookup
+          mkdir -p raw
+          xcrun simctl list devices available
+
+          # Newest simulator matching each App Store slot (6.9" iPhone, 13" iPad).
+          device() { xcrun simctl list devices available | grep -E "$1" | tail -1 | grep -oE '[0-9A-F-]{36}'; }
+
+          shoot() { # kind udid
+            local kind=$1 udid=$2
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid"
+            xcrun simctl install "$udid" "$APP"
+            xcrun simctl privacy "$udid" grant location "$BUNDLE"
+            xcrun simctl location "$udid" set "$LAT,$LON"
+            xcrun simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiBars 3 \
+              --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+            # name hour extra-args...; waits cover location fix + ADSB.lol + adsbdb route lookups.
+            for spec in "home-day 10" "home-evening 18" "home-night 22" "details-day 10 -OpenDetails YES" "details-night 22 -OpenDetails YES"; do
+              set -- $spec
+              local name=$1 hour=$2; shift 2
+              xcrun simctl launch "$udid" "$BUNDLE" -SkyClockHour "$hour" ${@+"$@"}
+              sleep 25
+              xcrun simctl io "$udid" screenshot "raw/$kind-$name.png"
+              xcrun simctl terminate "$udid" "$BUNDLE" || true
+              sleep 2
+            done
+            xcrun simctl shutdown "$udid"
+          }
+
+          shoot iphone "$(device 'iPhone [0-9]+ Pro Max')"
+          shoot ipad "$(device 'iPad Pro 13-inch')"
+
+      - name: Frame for App Store
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet pillow
+          .venv/bin/python Support/screenshots/frame.py raw AppStoreScreenshots
+          cp -R raw AppStoreScreenshots/raw
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppStoreScreenshots
+          path: AppStoreScreenshots
+          if-no-files-found: error
+          retention-days: 14

@@ -19,6 +19,8 @@ targets:
         PRODUCT_NAME: WhereIsThatPlane
         PRODUCT_BUNDLE_IDENTIFIER: com.intellobyte.flightlookup
         GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_KEY_CFBundleDisplayName: "Where Is That Plane?"
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Your location helps find aircraft flying near you."
         INFOPLIST_KEY_NSUserNotificationsUsageDescription: "Get alerts when an aircraft is detected near your location."

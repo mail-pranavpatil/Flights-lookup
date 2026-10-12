@@ -102,11 +102,11 @@ jobs:
           retention-days: 7
 
       - name: Upload build to TestFlight
-        uses: apple-actions/upload-testflight-build@v5
+        # v1 (altool) validates the IPA with Apple and fails the job on rejection; same setup as autoedit-ai.
+        uses: apple-actions/upload-testflight-build@v1
         with:
           app-path: ${{ runner.temp }}/export/WhereIsThatPlane.ipa
+          app-type: ios
           issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           api-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          uses-non-exempt-encryption: 'false'
-          wait-for-processing: 'false'

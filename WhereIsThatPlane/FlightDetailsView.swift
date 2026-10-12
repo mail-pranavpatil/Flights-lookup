@@ -11,6 +11,7 @@ struct FlightDetailsView: View {
     @State private var route: FlightRoute?
     @State private var info: AircraftInfo?
     @State private var isLoading = true
+    @Environment(\.skyAppearance) private var sky
     private let lookup = RouteLookupService()
 
     /// Latest data for this aircraft after a refresh, falling back to what was tapped.
@@ -21,54 +22,56 @@ struct FlightDetailsView: View {
 
     var body: some View {
         ZStack {
-            SkyPalette.ivory.ignoresSafeArea()
+            SkyBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack {
-                        Text("FLIGHT DETAILS").font(.caption2.weight(.semibold)).tracking(1.4).foregroundStyle(SkyPalette.slate)
+                        Text("FLIGHT DETAILS").font(.caption2.weight(.semibold)).tracking(1.4).foregroundStyle(sky.secondary)
                         Spacer()
                         Button(action: onRefresh) {
                             Group {
-                                if model.isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                                if model.isRefreshing { ProgressView().tint(sky.text) } else { Image(systemName: "arrow.clockwise") }
                             }
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(SkyPalette.ink)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(sky.text)
                             .frame(width: 44, height: 44)
-                            .background(SkyPalette.cardWhite, in: Circle())
+                            .background(sky.card, in: Circle())
                         }
                         .disabled(model.isRefreshing)
                         .accessibilityLabel("Refresh position")
                     }
                     VStack(alignment: .leading, spacing: 4) {
+                        AirlineLogo(airline: verified?.airline, height: 28, maxWidth: 150)
                         Text(aircraft.knownCallsign ?? "Aircraft nearby")
-                            .font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(SkyPalette.ink)
-                        if let airline = route?.airline?.name {
-                            Text(airline).font(.headline).foregroundStyle(SkyPalette.ink.opacity(0.75))
+                            .font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(sky.text)
+                        // Airline only from a route that matched the live position.
+                        if let airline = verified?.airline?.name {
+                            Text(airline).font(.headline).foregroundStyle(sky.secondary)
                         }
                     }
                     if !stillInRange {
                         Label("Not in the latest update. It may have left the area.", systemImage: "clock.arrow.circlepath")
-                            .font(.footnote).foregroundStyle(SkyPalette.slate)
+                            .font(.footnote).foregroundStyle(sky.secondary)
                     }
                     if let thumb = info?.url_photo_thumbnail ?? info?.url_photo, let url = URL(string: thumb) {
                         AsyncImage(url: url) { image in
                             image.resizable().scaledToFill()
-                        } placeholder: { SkyPalette.mistBlue }
+                        } placeholder: { sky.card }
                         .frame(height: 170).frame(maxWidth: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .accessibilityLabel("Photo of this aircraft type")
                     }
-                    Text("Where is it going?").font(.headline).foregroundStyle(SkyPalette.ink)
+                    Text("Where is it going?").font(.headline).foregroundStyle(sky.text)
                     routeSection
                     flightMap
                     detailsCard
                     if !funFacts.isEmpty {
-                        Text("Flight facts").font(.headline).foregroundStyle(SkyPalette.ink).padding(.top, 4)
+                        Text("Flight facts").font(.headline).foregroundStyle(sky.text).padding(.top, 4)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                             ForEach(funFacts.indices, id: \.self) { i in factTile(funFacts[i].icon, funFacts[i].text) }
                         }
                     }
                     Text("We match nearby aircraft using public ADS-B tracking data. This isn't visual confirmation of the plane you saw.")
-                        .font(.caption).foregroundStyle(SkyPalette.slate)
+                        .font(.caption).foregroundStyle(sky.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(24)
@@ -89,48 +92,48 @@ struct FlightDetailsView: View {
                 HStack(alignment: .top) {
                     airportLabel("FROM", route.origin, alignment: .leading)
                     Spacer()
-                    Image(systemName: "airplane").font(.title2).foregroundStyle(SkyPalette.gold).padding(.top, 18)
+                    Image(systemName: "airplane").font(.title2).foregroundStyle(sky.accent).padding(.top, 18)
                         .accessibilityHidden(true)
                     Spacer()
                     airportLabel("TO", route.destination, alignment: .trailing)
                 }
                 if let progress = aircraft.progress(on: route) {
-                    ProgressView(value: progress.fraction).tint(SkyPalette.gold)
+                    ProgressView(value: progress.fraction).tint(sky.accent)
                     HStack {
                         Text("\(Int((progress.fraction * 100).rounded()))% of the way there")
                         Spacer()
                         Text("\(Int(progress.kmLeft.rounded()).formatted()) km to go")
                     }
-                    .font(.caption.weight(.semibold)).foregroundStyle(SkyPalette.slate)
+                    .font(.caption.weight(.semibold)).foregroundStyle(sky.secondary)
                     if let minutes = aircraft.minutesToLanding(kmLeft: progress.kmLeft) {
                         Label("Lands in about \(minutes / 60 > 0 ? "\(minutes / 60) h " : "")\(minutes % 60) min (estimate)", systemImage: "clock")
-                            .font(.subheadline).foregroundStyle(SkyPalette.ink)
+                            .font(.subheadline).foregroundStyle(sky.text)
                     }
                 }
                 Text("Route looked up by callsign in the adsbdb database and checked against the plane's live position and heading.")
-                    .font(.caption).foregroundStyle(SkyPalette.slate)
+                    .font(.caption).foregroundStyle(sky.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(18)
-            .background(SkyPalette.cardWhite, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         } else if isLoading {
-            HStack(spacing: 10) { ProgressView().tint(SkyPalette.ink); Text("Looking up the route…") }
-                .font(.subheadline).foregroundStyle(SkyPalette.slate)
+            HStack(spacing: 10) { ProgressView().tint(sky.text); Text("Looking up the route…") }
+                .font(.subheadline).foregroundStyle(sky.secondary)
         } else if route != nil {
             Text("Route couldn't be confirmed. The scheduled route for this callsign doesn't match where the plane is or where it's heading, so we're not showing it.")
-                .font(.subheadline).foregroundStyle(SkyPalette.slate).fixedSize(horizontal: false, vertical: true)
+                .font(.subheadline).foregroundStyle(sky.secondary).fixedSize(horizontal: false, vertical: true)
         } else {
             Text("Route not identified. Private, cargo, training and military flights often don't publish one.")
-                .font(.subheadline).foregroundStyle(SkyPalette.slate).fixedSize(horizontal: false, vertical: true)
+                .font(.subheadline).foregroundStyle(sky.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func airportLabel(_ title: String, _ airport: Airport, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 3) {
-            Text(title).font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(SkyPalette.slate)
-            Text(airport.code).font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(SkyPalette.ink)
-            Text(airport.city).font(.headline).foregroundStyle(SkyPalette.ink)
-            if let country = airport.country_name { Text(country).font(.caption).foregroundStyle(SkyPalette.slate) }
+            Text(title).font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(sky.secondary)
+            Text(airport.code).font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(sky.text)
+            Text(airport.city).font(.headline).foregroundStyle(sky.text)
+            if let country = airport.country_name { Text(country).font(.caption).foregroundStyle(sky.secondary) }
         }
         .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
     }
@@ -140,18 +143,18 @@ struct FlightDetailsView: View {
             Map(interactionModes: []) {
                 if let route = verified {
                     MapPolyline(coordinates: [route.origin.coordinate, route.destination.coordinate], contourStyle: .geodesic)
-                        .stroke(SkyPalette.gold, style: StrokeStyle(lineWidth: 3, dash: [6, 5]))
-                    Marker(route.origin.code, systemImage: "airplane.departure", coordinate: route.origin.coordinate).tint(SkyPalette.ink)
-                    Marker(route.destination.code, systemImage: "airplane.arrival", coordinate: route.destination.coordinate).tint(SkyPalette.gold)
+                        .stroke(SkyPalette.dayAccent, style: StrokeStyle(lineWidth: 3, dash: [6, 5]))
+                    Marker(route.origin.code, systemImage: "airplane.departure", coordinate: route.origin.coordinate).tint(SkyPalette.dayAccent)
+                    Marker(route.destination.code, systemImage: "airplane.arrival", coordinate: route.destination.coordinate).tint(SkyPalette.violet)
                 }
                 if let userLocation {
                     Annotation("You", coordinate: userLocation.coordinate) {
-                        Circle().fill(SkyPalette.radarBlue).frame(width: 12, height: 12).overlay(Circle().stroke(.white, lineWidth: 2))
+                        Circle().fill(SkyPalette.dayAccent).frame(width: 12, height: 12).overlay(Circle().stroke(.white, lineWidth: 2))
                     }
                 }
                 Annotation(aircraft.callsign, coordinate: planeCoordinate) {
                     // SF Symbol "airplane" points east (90°), so rotate by track − 90.
-                    Image(systemName: "airplane").font(.title2).foregroundStyle(SkyPalette.gold)
+                    Image(systemName: "airplane").font(.title2).foregroundStyle(SkyPalette.dayAccent)
                         .rotationEffect(.degrees((aircraft.track ?? 90) - 90))
                         .shadow(radius: 2)
                 }
@@ -165,22 +168,22 @@ struct FlightDetailsView: View {
     private var detailsCard: some View {
         VStack(spacing: 12) {
             detailRow("Aircraft", aircraft.aircraftDescription)
-            Divider().overlay(SkyPalette.divider)
+            Divider().overlay(sky.secondary.opacity(0.3))
             detailRow("Altitude", aircraft.altitudeLabel)
-            Divider().overlay(SkyPalette.divider)
+            Divider().overlay(sky.secondary.opacity(0.3))
             detailRow("Speed", aircraft.speedLabel)
-            Divider().overlay(SkyPalette.divider)
+            Divider().overlay(sky.secondary.opacity(0.3))
             detailRow("Heading", aircraft.track.map { "\(Int($0.rounded()))°\(aircraft.compassDirection.map { " (\($0))" } ?? "")" } ?? "Unavailable")
-            Divider().overlay(SkyPalette.divider)
+            Divider().overlay(sky.secondary.opacity(0.3))
             detailRow("Distance from you", current.distanceLabel)
             if let lastUpdated = model.lastUpdated {
-                Divider().overlay(SkyPalette.divider)
+                Divider().overlay(sky.secondary.opacity(0.3))
                 let seenAt = lastUpdated.addingTimeInterval(-(aircraft.seen_pos ?? 0))
                 detailRow("Position seen", seenAt.formatted(.relative(presentation: .numeric)))
             }
         }
         .padding(18)
-        .background(SkyPalette.cardWhite, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var funFacts: [(icon: String, text: String)] {
@@ -204,19 +207,19 @@ struct FlightDetailsView: View {
 
     private func factTile(_ icon: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: icon).font(.title3).foregroundStyle(SkyPalette.radarBlue).accessibilityHidden(true)
-            Text(text).font(.caption).foregroundStyle(SkyPalette.ink).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: icon).font(.title3).foregroundStyle(sky.accent).accessibilityHidden(true)
+            Text(text).font(.caption).foregroundStyle(sky.text).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(14).frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-        .background(SkyPalette.mistBlue.opacity(0.6), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func detailRow(_ title: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(title).foregroundStyle(SkyPalette.slate)
+            Text(title).foregroundStyle(sky.secondary)
             Spacer()
-            Text(value).foregroundStyle(SkyPalette.ink).multilineTextAlignment(.trailing)
+            Text(value).foregroundStyle(sky.text).multilineTextAlignment(.trailing)
         }
         .font(.subheadline)
         .accessibilityElement(children: .combine)

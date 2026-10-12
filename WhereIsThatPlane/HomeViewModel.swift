@@ -25,7 +25,7 @@ struct RankedAircraft: Identifiable, Hashable {
         return atan2(meters, max(distanceKM * 1_000, 1)) * 180 / .pi
     }
     var isLikelyOverhead: Bool { (elevationDegrees ?? 0) >= Self.overheadElevationDegrees }
-    var confidenceLabel: String { isLikelyOverhead ? "LIKELY OVERHEAD" : "NEARBY FLIGHT" }
+    var confidenceLabel: String { isLikelyOverhead ? "LIKELY OVERHEAD" : "NEARBY AIRCRAFT" }
     var confidenceNote: String { isLikelyOverhead ? "Likely overhead — not visually confirmed" : "Best match based on nearby aircraft position" }
     var distanceLabel: String { "\(distanceKM.formatted(.number.precision(.fractionLength(1)))) km away" }
 

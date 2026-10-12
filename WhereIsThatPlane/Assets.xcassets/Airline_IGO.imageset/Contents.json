@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "Airline_IGO.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

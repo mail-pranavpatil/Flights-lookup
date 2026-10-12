@@ -84,6 +84,9 @@ struct FlightRoute: Decodable, Hashable {
 struct Airline: Decodable, Hashable {
     let name: String
     let country: String?
+    /// ICAO airline designator from adsbdb (e.g. "IGO"); keys the bundled `Airline_<ICAO>` logo.
+    let icao: String?
+    let iata: String?
 }
 
 struct Airport: Decodable, Hashable {
@@ -94,7 +97,8 @@ struct Airport: Decodable, Hashable {
     let latitude: Double
     let longitude: Double
 
-    var code: String { iata_code ?? "???" }
+    /// IATA code when known; otherwise the city, never a made-up code.
+    var code: String { iata_code ?? city }
     var city: String { municipality ?? name }
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
     var location: CLLocation { CLLocation(latitude: latitude, longitude: longitude) }
@@ -232,6 +236,16 @@ enum FunFactsSelfCheck {
         assert(!SkyAlerts.shouldAlert(hex: "a", now: now, lastAlertAt: nil, notifiedHexes: ["a"]))
         assert(!SkyAlerts.shouldAlert(hex: "b", now: now, lastAlertAt: now.addingTimeInterval(-60), notifiedHexes: []))
         assert(SkyAlerts.shouldAlert(hex: "b", now: now, lastAlertAt: now.addingTimeInterval(-SkyAlerts.cooldown - 1), notifiedHexes: []))
+
+        // Sky theme bands follow local time.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func at(_ hour: Int, _ minute: Int) -> Date { calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: hour, minute: minute))! }
+        assert(SkyAppearance.current(for: at(7, 0), calendar: calendar) == .day)
+        assert(SkyAppearance.current(for: at(16, 59), calendar: calendar) == .day)
+        assert(SkyAppearance.current(for: at(17, 0), calendar: calendar) == .evening)
+        assert(SkyAppearance.current(for: at(20, 0), calendar: calendar) == .night)
+        assert(SkyAppearance.current(for: at(6, 59), calendar: calendar) == .night)
     }
 }
 #endif

@@ -3,42 +3,31 @@ import UIKit
 import CoreLocation
 import UserNotifications
 
-enum SkyPalette {
-    static let ink = Color(red: 16.0/255.0, green: 17.0/255.0, blue: 20.0/255.0)
-    static let ivory = Color(red: 247.0/255.0, green: 245.0/255.0, blue: 239.0/255.0)
-    static let gold = Color(red: 245.0/255.0, green: 189.0/255.0, blue: 69.0/255.0)
-    static let radarBlue = Color(red: 83.0/255.0, green: 107.0/255.0, blue: 255.0/255.0)
-    static let slate = Color(red: 116.0/255.0, green: 119.0/255.0, blue: 131.0/255.0)
-    static let mistBlue = Color(red: 221.0/255.0, green: 231.0/255.0, blue: 255.0/255.0)
-    static let lilac = Color(red: 220.0/255.0, green: 215.0/255.0, blue: 255.0/255.0)
-    static let cardWhite = Color.white
-    static let divider = Color(red: 232.0/255.0, green: 231.0/255.0, blue: 226.0/255.0)
-    /// Deeper end of the radar gradient so white text keeps AA contrast.
-    static let indigo = Color(red: 64.0/255.0, green: 77.0/255.0, blue: 217.0/255.0)
-}
-
 struct ContentView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var model = HomeViewModel()
     @State private var detailsItem: RankedAircraft?
     /// adsbdb routes by callsign (unverified; views check them with `Aircraft.verifiedRoute`).
     @State private var routes: [String: FlightRoute] = [:]
+    @State private var appearance = SkyAppearance.current(for: .now)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    SkyHeaderView(placeName: locationManager.placeName, hasLocation: locationManager.location != nil, lastUpdated: model.lastUpdated) {
+                    SkyHeaderView(placeName: locationManager.placeName, hasLocation: locationManager.location != nil,
+                                  lastUpdated: model.lastUpdated, items: model.ranked) {
                         withAnimation(reduceMotion ? nil : .easeInOut) { proxy.scrollTo("alerts", anchor: .top) }
                     }
                     hero
                     if case .error(let message) = model.state, model.selected != nil {
                         Label(message, systemImage: "exclamationmark.triangle")
-                            .font(.footnote).foregroundStyle(SkyPalette.ink)
+                            .font(.footnote).foregroundStyle(appearance.text)
                             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(SkyPalette.cardWhite.opacity(0.8), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .background(appearance.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                     if model.ranked.count > 1 { nearbySection }
                     SkyActivityCard(items: model.ranked, userLocation: locationManager.location, selectedID: model.selected?.id,
@@ -52,8 +41,20 @@ struct ContentView: View {
             }
         }
         .background(SkyBackground())
-        .preferredColorScheme(.light)
+        .environment(\.skyAppearance, appearance)
+        .preferredColorScheme(appearance.colorScheme)
         .task { await model.refresh(using: locationManager) }
+        // Re-check the theme at each local hour boundary while the app is on screen (no background timer).
+        .task {
+            while !Task.isCancelled {
+                let next = Calendar.current.nextDate(after: .now, matching: DateComponents(minute: 0, second: 0), matchingPolicy: .nextTime)
+                try? await Task.sleep(for: .seconds(max(1, next?.timeIntervalSinceNow ?? 3_600)))
+                updateAppearance()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { updateAppearance() }
+        }
         .onChange(of: locationManager.authorizationStatus) { _, _ in refresh() }
         .onChange(of: locationManager.location) { _, newValue in
             if newValue != nil && model.lastUpdated == nil { refresh() }
@@ -73,12 +74,20 @@ struct ContentView: View {
         }
         .sheet(item: $detailsItem) { item in
             FlightDetailsView(initial: item, model: model, userLocation: locationManager.location, onRefresh: refresh)
+                .environment(\.skyAppearance, appearance)
+                .preferredColorScheme(appearance.colorScheme)
                 .presentationDetents([.large, .medium])
                 .presentationDragIndicator(.visible)
         }
     }
 
     private func refresh() { Task { await model.refresh(using: locationManager) } }
+
+    private func updateAppearance() {
+        let now = SkyAppearance.current(for: .now)
+        guard now != appearance else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 1.2)) { appearance = now }
+    }
 
     private func route(for item: RankedAircraft) -> FlightRoute? {
         item.aircraft.knownCallsign.flatMap { routes[$0] }
@@ -100,20 +109,20 @@ struct ContentView: View {
                     }
                 }
             case .empty:
-                HeroStatusCard(icon: "cloud", title: "A quiet patch of sky",
-                               message: "No matching aircraft found nearby right now.", actionTitle: "Try again", action: refresh)
+                HeroStatusCard(icon: "cloud", title: "Quiet skies",
+                               message: "No matching aircraft nearby right now.", actionTitle: "Refresh", action: refresh)
             case .error(let message):
-                HeroStatusCard(icon: "exclamationmark.triangle", title: "Couldn't reach the sky",
+                HeroStatusCard(icon: "exclamationmark.triangle", title: "Couldn't load aircraft data",
                                message: message, actionTitle: "Try again", action: refresh)
             case .idle, .loading, .loaded:
-                HeroStatusCard(icon: "airplane", title: "Looking for aircraft…", message: nil, showsSkeleton: true)
+                HeroStatusCard(icon: "airplane", title: "Looking for aircraft...", message: nil, showsSkeleton: true)
             }
         }
     }
 
     private var nearbySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Around you").font(.headline).foregroundStyle(SkyPalette.ink)
+            Text("Nearby flights").font(.headline).foregroundStyle(appearance.text)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(Array(model.ranked.prefix(12))) { item in
@@ -130,7 +139,7 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
             }
             .padding(.horizontal, -20)
         }
@@ -139,24 +148,12 @@ struct ContentView: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("A BEST GUESS, NOT RADAR VISION")
-                .font(.caption2.weight(.semibold)).tracking(1.2).foregroundStyle(SkyPalette.slate)
+                .font(.caption2.weight(.semibold)).tracking(1.2)
             Text("Aircraft data can be delayed or missing. The closest plane isn't guaranteed to be the one directly overhead, and route details may not be available.")
-                .font(.caption).foregroundStyle(SkyPalette.slate).fixedSize(horizontal: false, vertical: true)
+                .font(.caption).fixedSize(horizontal: false, vertical: true)
         }
+        .foregroundStyle(appearance.secondary)
         .padding(.top, 4)
-    }
-}
-
-// MARK: - Background
-
-private struct SkyBackground: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [SkyPalette.mistBlue, SkyPalette.ivory], startPoint: .top, endPoint: .center)
-            RadialGradient(colors: [SkyPalette.lilac.opacity(0.7), .clear], center: .topTrailing, startRadius: 10, endRadius: 340)
-            RadialGradient(colors: [SkyPalette.cardWhite.opacity(0.6), .clear], center: .topLeading, startRadius: 0, endRadius: 260)
-        }
-        .ignoresSafeArea()
     }
 }
 
@@ -166,37 +163,54 @@ struct SkyHeaderView: View {
     let placeName: String?
     let hasLocation: Bool
     let lastUpdated: Date?
+    let items: [RankedAircraft]
     let onAlerts: () -> Void
-    @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 30
+    @Environment(\.skyAppearance) private var sky
+    @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 32
+
+    /// Describes the aircraft data, never the weather.
+    private var headline: String {
+        guard lastUpdated != nil else { return "Your sky, right now" }
+        if items.isEmpty { return "Quiet skies" }
+        if items.contains(where: \.isLikelyOverhead) { return "Flights overhead" }
+        if items.count >= 8 { return "A busy sky" }
+        return "Your sky, right now"
+    }
 
     var body: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text("YOUR SKY, RIGHT NOW")
-                        .font(.caption2.weight(.medium)).tracking(1.6).foregroundStyle(SkyPalette.slate)
-                    FreshnessBadge(lastUpdated: lastUpdated)
-                }
-                Text("Look up.")
-                    .font(.system(size: titleSize, weight: .bold, design: .rounded)).foregroundStyle(SkyPalette.ink)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
                 Label(placeName ?? (hasLocation ? "Near you" : "Location needed"), systemImage: "location.fill")
-                    .font(.footnote).foregroundStyle(SkyPalette.slate)
+                    .font(.subheadline.weight(.medium)).foregroundStyle(sky.text)
+                    .lineLimit(1)
+                Spacer()
+                Button(action: onAlerts) {
+                    Image(systemName: "bell.badge")
+                        .font(.body.weight(.semibold)).foregroundStyle(sky.text)
+                        .frame(width: 44, height: 44)
+                        .background(sky.card, in: Circle())
+                        .overlay(Circle().strokeBorder(sky.cardBorder))
+                }
+                .accessibilityLabel("Sky alerts settings")
             }
-            Spacer()
-            Button(action: onAlerts) {
-                Image(systemName: "bell.badge")
-                    .font(.body.weight(.semibold)).foregroundStyle(SkyPalette.ink)
-                    .frame(width: 44, height: 44)
-                    .background(SkyPalette.cardWhite, in: Circle())
-                    .shadow(color: SkyPalette.ink.opacity(0.08), radius: 8, y: 3)
+            HStack(spacing: 8) {
+                Text(SkyAppearance.greeting(for: .now)).font(.subheadline).foregroundStyle(sky.secondary)
+                FreshnessBadge(lastUpdated: lastUpdated)
             }
-            .accessibilityLabel("Sky alerts settings")
+            Text(headline)
+                .font(.system(size: titleSize, weight: .bold, design: .rounded)).foregroundStyle(sky.text)
+                .accessibilityAddTraits(.isHeader)
+            if lastUpdated != nil {
+                Text(items.count == 1 ? "1 aircraft nearby" : "\(items.count) aircraft nearby")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(sky.secondary)
+            }
         }
     }
 }
 
 private struct FreshnessBadge: View {
     let lastUpdated: Date?
+    @Environment(\.skyAppearance) private var sky
 
     var body: some View {
         if let lastUpdated {
@@ -205,7 +219,7 @@ private struct FreshnessBadge: View {
                     LiveChip()
                 } else {
                     Text("Updated \(lastUpdated.formatted(.relative(presentation: .named)))")
-                        .font(.caption2).foregroundStyle(SkyPalette.slate)
+                        .font(.caption2).foregroundStyle(sky.secondary)
                 }
             }
         }
@@ -214,16 +228,17 @@ private struct FreshnessBadge: View {
 
 private struct LiveChip: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.skyAppearance) private var sky
     @State private var dimmed = false
 
     var body: some View {
         HStack(spacing: 4) {
-            Circle().fill(SkyPalette.gold).frame(width: 6, height: 6).opacity(dimmed ? 0.35 : 1)
+            Circle().fill(SkyPalette.liveGreen).frame(width: 6, height: 6).opacity(dimmed ? 0.35 : 1)
             Text("LIVE").font(.caption2.weight(.semibold)).tracking(1)
         }
-        .foregroundStyle(SkyPalette.cardWhite)
+        .foregroundStyle(sky.text)
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(SkyPalette.ink, in: Capsule())
+        .background(sky.card, in: Capsule())
         .accessibilityLabel("Live data")
         .onAppear {
             guard !reduceMotion else { return }
@@ -234,39 +249,54 @@ private struct LiveChip: View {
 
 // MARK: - Hero
 
+/// Adaptive hero gradient: day haze, dusk periwinkle, night navy with stars.
 private struct HeroBackground: View {
+    @Environment(\.skyAppearance) private var sky
+
     var body: some View {
         ZStack {
-            SkyPalette.ink
-            RadialGradient(colors: [SkyPalette.gold.opacity(0.32), .clear], center: .topTrailing, startRadius: 0, endRadius: 230)
-            RadialGradient(colors: [SkyPalette.radarBlue.opacity(0.38), .clear], center: .bottomLeading, startRadius: 0, endRadius: 260)
+            LinearGradient(colors: sky.hero, startPoint: .topLeading, endPoint: .bottomTrailing)
+            CloudHaze(color: sky == .day ? .white.opacity(0.7) : SkyPalette.nightCloud.opacity(0.3))
+            if sky != .day { Stars(count: sky == .night ? 24 : 10) }
             FlightArc()
-                .stroke(SkyPalette.cardWhite.opacity(0.1), style: StrokeStyle(lineWidth: 1.5, dash: [4, 6]))
+                .stroke(sky.text.opacity(0.1), style: StrokeStyle(lineWidth: 1.5, dash: [4, 6]))
         }
     }
 }
 
-/// Decorative route curve behind the hero content.
+/// Curve from bottom-left to bottom-right; used for the decorative trail and the route line.
 private struct FlightArc: Shape {
+    var rise: CGFloat = 0.82
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX - 20, y: rect.maxY * 0.8))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX + 20, y: rect.maxY * 0.18),
-                          control: CGPoint(x: rect.midX, y: rect.maxY * 0.05))
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY),
+                          control: CGPoint(x: rect.midX, y: rect.maxY - rect.height * rise * 2))
         return path
     }
 }
 
 private struct Chip: View {
     let text: String
-    let tint: Color
+    let highlighted: Bool
+    @Environment(\.skyAppearance) private var sky
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.semibold)).tracking(1.1)
-            .foregroundStyle(SkyPalette.ink)
+            .font(.caption2.weight(.bold)).tracking(1.1)
+            .foregroundStyle(highlighted ? sky.buttonText : sky.text)
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(tint, in: Capsule())
+            .background(highlighted ? sky.buttonFill : sky.heroTile, in: Capsule())
+    }
+}
+
+private extension View {
+    func heroCardStyle(_ sky: SkyAppearance) -> some View {
+        self
+            .background(HeroBackground())
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(sky.cardBorder))
+            .shadow(color: sky.shadow, radius: 22, y: 12)
     }
 }
 
@@ -276,58 +306,44 @@ struct HeroAircraftCard: View {
     let isRefreshing: Bool
     let onDiscover: () -> Void
     let onRefresh: () -> Void
+    @Environment(\.skyAppearance) private var sky
 
     private var verifiedRoute: FlightRoute? { item.aircraft.verifiedRoute(route) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Chip(text: item.confidenceLabel, tint: item.isLikelyOverhead ? SkyPalette.gold : SkyPalette.mistBlue)
+                Chip(text: item.confidenceLabel, highlighted: item.isLikelyOverhead)
                 Spacer()
                 Button(action: onRefresh) {
                     Group {
-                        if isRefreshing { ProgressView().tint(SkyPalette.cardWhite) }
+                        if isRefreshing { ProgressView().tint(sky.text) }
                         else { Image(systemName: "arrow.clockwise").font(.subheadline.weight(.semibold)) }
                     }
-                    .foregroundStyle(SkyPalette.cardWhite)
+                    .foregroundStyle(sky.text)
                     .frame(width: 44, height: 44)
-                    .background(SkyPalette.cardWhite.opacity(0.1), in: Circle())
+                    .background(sky.heroTile, in: Circle())
                 }
                 .disabled(isRefreshing)
                 .accessibilityLabel("Refresh aircraft")
             }
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    AirlineLogo(airline: verifiedRoute?.airline, height: 24, maxWidth: 110)
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(item.aircraft.knownCallsign ?? "Aircraft nearby")
                             .font(.system(.title, design: .rounded, weight: .bold))
-                            .foregroundStyle(SkyPalette.cardWhite)
                             .lineLimit(1).minimumScaleFactor(0.7)
-                        if let route = verifiedRoute {
-                            Text("\(route.origin.city) → \(route.destination.city)")
-                                .font(.headline).foregroundStyle(SkyPalette.gold)
-                            Text("Route matches live position")
-                                .font(.caption).foregroundStyle(SkyPalette.cardWhite.opacity(0.6))
-                        } else {
-                            Text(route == nil ? "Route not identified" : "Route couldn't be confirmed")
-                                .font(.subheadline).foregroundStyle(SkyPalette.cardWhite.opacity(0.65))
+                        if let airline = verifiedRoute?.airline?.name {
+                            Text(airline).font(.subheadline).foregroundStyle(sky.secondary).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "airplane")
-                        .font(.system(size: 40, weight: .semibold))
-                        .foregroundStyle(SkyPalette.gold)
-                        // SF Symbol "airplane" points east (90°); decorative tilt when heading is unknown.
-                        .rotationEffect(.degrees((item.aircraft.track ?? 45) - 90))
-                        .frame(width: 76, height: 76)
-                        .background(Circle().fill(SkyPalette.gold.opacity(0.12)))
-                        .shadow(color: SkyPalette.gold.opacity(0.35), radius: 14)
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { pills }
-                    VStack(alignment: .leading, spacing: 8) { pills }
-                }
+                .foregroundStyle(sky.text)
+                routeRow
+                metrics
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.accessibilitySummary(route: verifiedRoute))
@@ -336,36 +352,73 @@ struct HeroAircraftCard: View {
                 HStack {
                     Text("Discover this flight").font(.headline)
                     Spacer()
-                    Image(systemName: "arrow.up.right").font(.subheadline.weight(.bold))
+                    Image(systemName: "chevron.right").font(.subheadline.weight(.bold))
                 }
-                .foregroundStyle(SkyPalette.ink)
+                .foregroundStyle(sky.buttonText)
                 .padding(.horizontal, 18).padding(.vertical, 15)
                 .frame(minHeight: 44)
-                .background(SkyPalette.gold, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(sky.buttonFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
 
             Text(item.confidenceNote)
-                .font(.caption).foregroundStyle(SkyPalette.cardWhite.opacity(0.65))
+                .font(.caption).foregroundStyle(sky.secondary)
         }
         .padding(22)
-        .background(HeroBackground())
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: SkyPalette.ink.opacity(0.18), radius: 22, y: 12)
+        .heroCardStyle(sky)
     }
 
-    @ViewBuilder private var pills: some View {
-        if item.aircraft.altitudeFeet != nil { pill("arrow.up", item.aircraft.altitudeLabel) }
-        pill("location", item.distanceLabel)
-        if let direction = item.aircraft.compassDirection { pill("safari", "Heading \(direction)") }
+    @ViewBuilder private var routeRow: some View {
+        if let route = verifiedRoute {
+            HStack(alignment: .top, spacing: 8) {
+                airport(route.origin, alignment: .leading)
+                ZStack {
+                    FlightArc().stroke(sky.accent.opacity(0.7), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 5]))
+                    // SF Symbol "airplane" points east, matching the left-to-right route.
+                    Image(systemName: "airplane").font(.subheadline.weight(.bold)).foregroundStyle(sky.accent)
+                        .offset(y: -11) // sits on the arc's apex
+                }
+                .frame(height: 34).frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                airport(route.destination, alignment: .trailing)
+            }
+        } else {
+            Label(route == nil ? "Route not identified yet" : "Route couldn't be confirmed", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.subheadline).foregroundStyle(sky.secondary)
+        }
     }
 
-    private func pill(_ icon: String, _ text: String) -> some View {
-        Label(text, systemImage: icon)
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(SkyPalette.cardWhite)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(SkyPalette.cardWhite.opacity(0.1), in: Capsule())
-            .fixedSize()
+    /// IATA code only when adsbdb supplied one; the city name always sits underneath.
+    private func airport(_ airport: Airport, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(airport.iata_code ?? airport.city)
+                .font(.system(.title2, design: .rounded, weight: .bold)).foregroundStyle(sky.text)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            if airport.iata_code != nil {
+                Text(airport.city).font(.caption).foregroundStyle(sky.secondary).lineLimit(2)
+            }
+        }
+        .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+        .frame(maxWidth: 110, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var metrics: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
+            if item.aircraft.altitudeFeet != nil { tile("mountain.2.fill", "Altitude", item.aircraft.altitudeLabel) }
+            if item.aircraft.gs != nil { tile("speedometer", "Speed", item.aircraft.speedLabel) }
+            if let direction = item.aircraft.compassDirection { tile("safari", "Heading", direction.capitalized) }
+            tile("location", "Distance", item.distanceLabel)
+        }
+    }
+
+    private func tile(_ icon: String, _ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: icon).font(.caption2.weight(.semibold)).foregroundStyle(sky.secondary)
+            Text(value).font(.subheadline.weight(.semibold)).foregroundStyle(sky.text)
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(sky.heroTile, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -377,41 +430,40 @@ private struct HeroStatusCard: View {
     var actionTitle: String? = nil
     var showsSkeleton = false
     var action: (() -> Void)? = nil
+    @Environment(\.skyAppearance) private var sky
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 30, weight: .semibold)).foregroundStyle(SkyPalette.gold)
+                .font(.system(size: 30, weight: .semibold)).foregroundStyle(sky.accent)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(.title2, design: .rounded, weight: .bold)).foregroundStyle(SkyPalette.cardWhite)
+                .font(.system(.title2, design: .rounded, weight: .bold)).foregroundStyle(sky.text)
             if let message {
-                Text(message).font(.subheadline).foregroundStyle(SkyPalette.cardWhite.opacity(0.75))
+                Text(message).font(.subheadline).foregroundStyle(sky.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if showsSkeleton {
                 HStack(spacing: 8) {
                     ForEach([90.0, 80.0, 110.0], id: \.self) { width in
-                        Capsule().fill(SkyPalette.cardWhite.opacity(0.12)).frame(width: width, height: 26)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(sky.heroTile).frame(width: width, height: 44)
                     }
                 }
                 .accessibilityHidden(true)
-                ProgressView().tint(SkyPalette.cardWhite)
+                ProgressView().tint(sky.text)
             }
             if let actionTitle, let action {
                 Button(action: action) {
-                    Text(actionTitle).font(.headline).foregroundStyle(SkyPalette.ink)
+                    Text(actionTitle).font(.headline).foregroundStyle(sky.buttonText)
                         .padding(.horizontal, 18).padding(.vertical, 13)
                         .frame(minHeight: 44)
-                        .background(SkyPalette.gold, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(sky.buttonFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HeroBackground())
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: SkyPalette.ink.opacity(0.18), radius: 22, y: 12)
+        .heroCardStyle(sky)
     }
 }
 
@@ -422,45 +474,44 @@ struct NearbyAircraftCard: View {
     let isSelected: Bool
     /// Pass only a route that passed `Aircraft.verifiedRoute`.
     var route: FlightRoute? = nil
+    @Environment(\.skyAppearance) private var sky
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "airplane")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? SkyPalette.gold : SkyPalette.radarBlue)
-                Spacer()
+            HStack(alignment: .center) {
+                AirlineLogo(airline: route?.airline, height: 16, maxWidth: 72)
+                Spacer(minLength: 4)
                 if let track = item.aircraft.track {
                     Image(systemName: "location.north.fill")
-                        .font(.caption).foregroundStyle(SkyPalette.slate)
+                        .font(.caption).foregroundStyle(sky.secondary)
                         .rotationEffect(.degrees(track))
                 }
             }
             Text(item.aircraft.knownCallsign ?? "Aircraft nearby")
-                .font(.headline).foregroundStyle(SkyPalette.ink)
+                .font(.headline).foregroundStyle(sky.text)
                 .lineLimit(1).minimumScaleFactor(0.75)
             if let route {
-                Text("\(route.origin.code) → \(route.destination.code)")
-                    .font(.caption.weight(.semibold)).foregroundStyle(SkyPalette.ink)
+                Text("\(route.origin.iata_code ?? route.origin.city) → \(route.destination.iata_code ?? route.destination.city)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(sky.text)
+                    .lineLimit(1).minimumScaleFactor(0.7)
             } else {
-                Text("Route unknown").font(.caption).foregroundStyle(SkyPalette.slate)
+                Text("Route unknown").font(.caption).foregroundStyle(sky.secondary)
             }
             Spacer(minLength: 4)
-            Text(item.distanceLabel).font(.subheadline.weight(.semibold)).foregroundStyle(SkyPalette.ink)
+            Text(item.distanceLabel).font(.subheadline.weight(.semibold)).foregroundStyle(sky.text)
             if item.aircraft.altitudeFeet != nil {
-                Text(item.aircraft.altitudeLabel).font(.caption).foregroundStyle(SkyPalette.slate)
+                Text(item.aircraft.altitudeLabel).font(.caption).foregroundStyle(sky.secondary)
             }
         }
         .padding(14)
-        .frame(width: 144, alignment: .leading)
-        .frame(minHeight: 168, alignment: .topLeading)
-        .background(isSelected ? SkyPalette.gold.opacity(0.14) : SkyPalette.cardWhite.opacity(0.85),
-                    in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .frame(width: 150, alignment: .leading)
+        .frame(minHeight: 172, alignment: .topLeading)
+        .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(isSelected ? SkyPalette.gold : .clear, lineWidth: 2)
+                .strokeBorder(isSelected ? sky.accent : sky.cardBorder, lineWidth: isSelected ? 2 : 1)
         }
-        .shadow(color: SkyPalette.ink.opacity(0.06), radius: 10, y: 4)
+        .shadow(color: isSelected ? sky.accent.opacity(0.45) : sky.shadow, radius: isSelected ? 12 : 10, y: 4)
     }
 }
 
@@ -473,6 +524,7 @@ struct SkyActivityCard: View {
     let hasData: Bool
     let isRefreshing: Bool
     let onRefresh: () -> Void
+    @Environment(\.skyAppearance) private var sky
 
     private var summary: String {
         guard hasData else { return "Waiting for data" }
@@ -486,32 +538,33 @@ struct SkyActivityCard: View {
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Sky activity").font(.headline)
+                Label("Sky activity", systemImage: "dot.radiowaves.left.and.right").font(.headline)
                 Text(summary).font(.system(.title3, design: .rounded, weight: .bold))
                 Text("Based on available aircraft tracking data").font(.caption)
+                    .opacity(0.85)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: onRefresh) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 14)
                         .frame(minHeight: 44)
-                        .background(SkyPalette.cardWhite.opacity(0.18), in: Capsule())
+                        .background(.white.opacity(0.18), in: Capsule())
                 }
                 .disabled(isRefreshing)
             }
-            .foregroundStyle(SkyPalette.cardWhite)
+            .foregroundStyle(.white)
             Spacer(minLength: 0)
             radar.frame(width: 120, height: 120).accessibilityHidden(true)
         }
         .padding(20)
         .background {
             ZStack {
-                LinearGradient(colors: [SkyPalette.radarBlue, SkyPalette.indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-                RadialGradient(colors: [SkyPalette.lilac.opacity(0.45), .clear], center: .topTrailing, startRadius: 0, endRadius: 200)
+                LinearGradient(colors: sky.activity, startPoint: .topLeading, endPoint: .bottomTrailing)
+                RadialGradient(colors: [.white.opacity(0.18), .clear], center: .topTrailing, startRadius: 0, endRadius: 200)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: SkyPalette.radarBlue.opacity(0.25), radius: 18, y: 8)
+        .shadow(color: sky.shadow, radius: 18, y: 8)
     }
 
     private var radar: some View {
@@ -529,10 +582,14 @@ struct SkyActivityCard: View {
             for item in items {
                 guard let coordinate = item.aircraft.coordinate else { continue }
                 let bearing = CGFloat(RankedAircraft.bearing(from: user, to: coordinate) * .pi / 180)
-                let r = CGFloat(min(item.distanceKM / RankedAircraft.radarRangeKM, 1)) * (radius - 5)
+                let r = CGFloat(min(item.distanceKM / RankedAircraft.radarRangeKM, 1)) * (radius - 6)
                 let point = CGPoint(x: center.x + sin(bearing) * r, y: center.y - cos(bearing) * r)
-                let isSelected = item.id == selectedID
-                context.fill(dot(point, isSelected ? 10 : 6), with: .color(isSelected ? SkyPalette.gold : .white.opacity(0.9)))
+                if item.id == selectedID {
+                    context.stroke(dot(point, 14), with: .color(.white.opacity(0.8)), lineWidth: 1.5)
+                    context.fill(dot(point, 8), with: .color(.white))
+                } else {
+                    context.fill(dot(point, 5), with: .color(.white.opacity(0.75)))
+                }
             }
         }
     }
@@ -545,32 +602,35 @@ struct SkyAlertsSettingsRow: View {
     @State private var status: UNAuthorizationStatus = .notDetermined
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.skyAppearance) private var sky
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: Binding(get: { enabled && status != .denied }, set: setEnabled)) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Sky alerts", systemImage: "bell.badge").font(.headline).foregroundStyle(SkyPalette.ink)
-                    Text("Get a notification when a likely nearby aircraft passes overhead.")
-                        .font(.footnote).foregroundStyle(SkyPalette.slate)
+                    Label("Sky alerts", systemImage: "bell.badge").font(.headline).foregroundStyle(sky.text)
+                    Text("Get notified when a likely nearby aircraft passes overhead.")
+                        .font(.footnote).foregroundStyle(sky.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .tint(SkyPalette.gold)
+            .tint(sky.accent)
             if status == .denied {
                 Button("Notifications are off. Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
                 .font(.footnote.weight(.semibold))
+                .tint(sky.accent)
                 .frame(minHeight: 44)
             }
             Text("iOS decides when the app can check in the background, so alerts may be delayed or missed. Real-time alerts need our server, which is coming later.")
-                .font(.caption).foregroundStyle(SkyPalette.slate)
+                .font(.caption).foregroundStyle(sky.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
-        .background(SkyPalette.cardWhite.opacity(0.9), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: SkyPalette.ink.opacity(0.06), radius: 10, y: 4)
+        .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(sky.cardBorder))
+        .shadow(color: sky.shadow, radius: 10, y: 4)
         .task { await reloadStatus() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await reloadStatus() } }
@@ -598,14 +658,21 @@ struct SkyAlertsSettingsRow: View {
 
 #if DEBUG
 private let previewPlane = RankedAircraft(
-    aircraft: Aircraft(hex: "preview1", flight: "AIC101 ", lat: 18.6, lon: 73.9, alt_baro: .number(32_000), gs: 450, track: 45, t: "A20N", desc: nil, ownOp: nil, seen_pos: 2),
+    aircraft: Aircraft(hex: "preview1", flight: "IGO512 ", lat: 18.6, lon: 73.9, alt_baro: .number(32_000), gs: 450, track: 45, t: "A20N", desc: nil, ownOp: nil, seen_pos: 2),
     distanceKM: 4.2)
 
-#Preview("Hero card") {
-    HeroAircraftCard(item: previewPlane, route: nil, isRefreshing: false, onDiscover: {}, onRefresh: {}).padding()
+#Preview("Hero card · day") {
+    HeroAircraftCard(item: previewPlane, route: nil, isRefreshing: false, onDiscover: {}, onRefresh: {})
+        .padding().background(SkyBackground())
+}
+
+#Preview("Hero card · night") {
+    HeroAircraftCard(item: previewPlane, route: nil, isRefreshing: false, onDiscover: {}, onRefresh: {})
+        .padding().background(SkyBackground())
+        .environment(\.skyAppearance, .night).preferredColorScheme(.dark)
 }
 
 #Preview("Nearby card") {
-    NearbyAircraftCard(item: previewPlane, isSelected: true).padding()
+    NearbyAircraftCard(item: previewPlane, isSelected: true).padding().background(SkyBackground())
 }
 #endif

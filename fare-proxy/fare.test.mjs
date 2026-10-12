@@ -29,6 +29,12 @@ test("prefers the same flight number over a cheaper one", async () => {
   assert.match(res.headers["Cache-Control"], /s-maxage/);
 });
 
+test("matches an ATC-suffixed callsign to its flight number", async () => {
+  const res = await call({ ...q, flight: "687C" }, [itinerary(3900, "AI", "655", "cheap"), itinerary(4250, "6E", "687", "same")]);
+  assert.equal(res.body.id, "same");
+  assert.equal(res.body.matched, true);
+});
+
 test("falls back to the cheapest fare on the route", async () => {
   const res = await call(q, [itinerary(5000, "AI", "1", "a"), itinerary(3900, "AI", "655", "b")]);
   assert.equal(res.body.id, "b");

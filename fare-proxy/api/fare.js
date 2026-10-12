@@ -7,19 +7,22 @@ const RULES = {
   destination: /^[A-Z]{3}$/,
   date: /^\d{4}-\d{2}-\d{2}$/,
   airline: /^[A-Z0-9]{2,3}$/,
-  flight: /^\d{1,5}$/,
+  flight: /^\d{1,5}[A-Z]?$/, // adsbdb keeps ATC suffixes: IGO687C → 6E687C
   market: /^[A-Z]{2}$/,
 };
 
-// "6E0687" / "687" → "687"
+// "6E0687" / "687" / "687C" → "687"
 const flightDigits = (number, airline) =>
-  String(number ?? "").toUpperCase().replace(new RegExp(`^${airline}`), "").replace(/^0+/, "");
+  String(number ?? "").toUpperCase().replace(new RegExp(`^${airline}`), "").replace(/\D/g, "").replace(/^0+/, "");
 
 export default async function handler(req, res) {
   const q = {};
   for (const [key, rule] of Object.entries(RULES)) {
     q[key] = String(req.query[key] ?? "").toUpperCase();
-    if (!rule.test(q[key])) return res.status(400).json({ error: `bad ${key}` });
+    if (!rule.test(q[key])) {
+      console.warn(`400 bad ${key}=${JSON.stringify(q[key])}`);
+      return res.status(400).json({ error: `bad ${key}` });
+    }
   }
 
   const upstream = await fetch(`${IGNAV}/fares/one-way`, {

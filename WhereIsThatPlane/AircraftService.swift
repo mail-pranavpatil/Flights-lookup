@@ -54,10 +54,11 @@ struct FareService {
         guard let origin = route.origin.iata_code, let destination = route.destination.iata_code,
               let airline = route.airline?.iata, let callsign = route.callsign_iata, callsign.hasPrefix(airline),
               let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return nil }
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: tomorrow)
         var url = URLComponents(url: Self.baseURL.appending(path: "fare"), resolvingAgainstBaseURL: false)!
         url.queryItems = [
             .init(name: "origin", value: origin), .init(name: "destination", value: destination),
-            .init(name: "date", value: tomorrow.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())),
+            .init(name: "date", value: String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)),
             .init(name: "airline", value: airline), .init(name: "flight", value: String(callsign.dropFirst(airline.count))),
             .init(name: "market", value: Locale.current.region?.identifier ?? "US"),
         ]

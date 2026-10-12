@@ -10,6 +10,7 @@ struct FlightDetailsView: View {
 
     @State private var route: FlightRoute?
     @State private var info: AircraftInfo?
+    @State private var fare: Fare?
     @State private var isLoading = true
     @Environment(\.skyAppearance) private var sky
     private let lookup = RouteLookupService()
@@ -62,6 +63,7 @@ struct FlightDetailsView: View {
                     }
                     Text("Where is it going?").font(.headline).foregroundStyle(sky.text)
                     routeSection
+                    if let fare { fareCard(fare) }
                     flightMap
                     detailsCard
                     if !funFacts.isEmpty {
@@ -83,6 +85,11 @@ struct FlightDetailsView: View {
             async let i = lookup.info(hex: aircraft.hex)
             (route, info) = await (r, i)
             isLoading = false
+        }
+        // Only price a route that matched the live position.
+        .task(id: verified?.callsign_iata) {
+            fare = nil
+            if let verified { fare = await FareService().fare(for: verified) }
         }
     }
 
@@ -126,6 +133,30 @@ struct FlightDetailsView: View {
             Text("Route not identified. Private, cargo, training and military flights often don't publish one.")
                 .font(.subheadline).foregroundStyle(sky.secondary).fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func fareCard(_ fare: Fare) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(fare.matched ? "Fly this flight tomorrow" : "Fly this route tomorrow", systemImage: "ticket.fill")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(sky.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("from").font(.headline).foregroundStyle(sky.secondary)
+                Text(fare.amount.formatted(.currency(code: fare.currency).precision(.fractionLength(0))))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(sky.text)
+            }
+            Text([fare.flight, fare.departureTime.map { "departs \($0)" }].compactMap { $0 }.joined(separator: " · "))
+                .font(.subheadline).foregroundStyle(sky.text)
+            Link(destination: FareService.bookingURL(fare)) {
+                Label("See booking options", systemImage: "arrow.up.right")
+                    .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
+                    .foregroundStyle(sky.buttonText)
+                    .background(sky.buttonFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            Text("Approximate nonstop economy fare from Ignav. Final price shown at checkout.")
+                .font(.caption).foregroundStyle(sky.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .background(sky.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func airportLabel(_ title: String, _ airport: Airport, alignment: HorizontalAlignment) -> some View {

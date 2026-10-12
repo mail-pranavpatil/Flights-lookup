@@ -45,6 +45,32 @@ struct RouteLookupService {
     }
 }
 
+/// Tomorrow's fare for the same flight number (or its route) via our Ignav proxy (fare-proxy/), which holds the API key.
+struct FareService {
+    // ponytail: set to the deployed fare-proxy URL.
+    static let baseURL = URL(string: "https://whereisthatplane-fare-proxy.vercel.app/api")!
+
+    func fare(for route: FlightRoute) async -> Fare? {
+        guard let origin = route.origin.iata_code, let destination = route.destination.iata_code,
+              let airline = route.airline?.iata, let callsign = route.callsign_iata, callsign.hasPrefix(airline),
+              let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) else { return nil }
+        var url = URLComponents(url: Self.baseURL.appending(path: "fare"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [
+            .init(name: "origin", value: origin), .init(name: "destination", value: destination),
+            .init(name: "date", value: tomorrow.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())),
+            .init(name: "airline", value: airline), .init(name: "flight", value: String(callsign.dropFirst(airline.count))),
+            .init(name: "market", value: Locale.current.region?.identifier ?? "US"),
+        ]
+        guard let requestURL = url.url, let (data, response) = try? await URLSession.shared.data(from: requestURL),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(Fare.self, from: data)
+    }
+
+    static func bookingURL(_ fare: Fare) -> URL {
+        baseURL.appending(path: "book").appending(queryItems: [.init(name: "id", value: fare.id)])
+    }
+}
+
 /// Shared by the home screen, cards and details so each callsign is looked up once per window.
 /// Misses ("no route" or a network failure, which look the same) expire sooner so they get retried.
 private actor RouteCache {

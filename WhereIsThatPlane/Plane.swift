@@ -104,6 +104,21 @@ struct Airport: Decodable, Hashable {
     var location: CLLocation { CLLocation(latitude: latitude, longitude: longitude) }
 }
 
+/// From fare-proxy: cheapest nonstop Ignav fare tomorrow; `matched` = same flight number as the plane overhead.
+struct Fare: Decodable, Hashable {
+    let amount: Double
+    let currency: String
+    let matched: Bool
+    let flight: String
+    let departure_time_local: String?
+    let id: String
+
+    /// "07:15" from Ignav's local ISO time ("2026-10-13T07:15:00").
+    var departureTime: String? {
+        departure_time_local.flatMap { $0.split(separator: "T").last.map { String($0.prefix(5)) } }
+    }
+}
+
 struct AircraftInfoResponse: Decodable {
     struct Body: Decodable { let aircraft: AircraftInfo }
     let response: Body

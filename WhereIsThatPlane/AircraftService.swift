@@ -21,6 +21,27 @@ struct ADSBLolService: AircraftProviding {
     }
 }
 
+/// Route + airframe lookups from adsbdb.com. Best effort: any failure just means "unknown".
+struct RouteLookupService {
+    func route(callsign: String) async -> FlightRoute? {
+        guard !callsign.isEmpty else { return nil }
+        return await fetch(RouteResponse.self, path: "callsign/\(callsign)")?.response.flightroute
+    }
+
+    func info(hex: String) async -> AircraftInfo? {
+        await fetch(AircraftInfoResponse.self, path: "aircraft/\(hex)")?.response.aircraft
+    }
+
+    private func fetch<T: Decodable>(_ type: T.Type, path: String) async -> T? {
+        guard let url = URL(string: "https://api.adsbdb.com/v0/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+}
+
 enum FlightDataError: LocalizedError {
     case invalidURL, serverResponse, locationUnavailable, noAircraft
     var errorDescription: String? {

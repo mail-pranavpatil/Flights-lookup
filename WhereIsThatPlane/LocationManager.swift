@@ -6,7 +6,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     @Published private(set) var location: CLLocation?
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
     @Published var locationError: String?
+    /// e.g. "Pune, Maharashtra"; nil until reverse geocoding succeeds.
+    @Published private(set) var placeName: String?
     private let manager = CLLocationManager()
+    private let geocoder = CLGeocoder()
 
     override init() {
         authorizationStatus = manager.authorizationStatus
@@ -34,6 +37,12 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         location = locations.last
         locationError = nil
+        guard let last = locations.last, !geocoder.isGeocoding else { return }
+        Task {
+            guard let mark = try? await geocoder.reverseGeocodeLocation(last).first else { return }
+            let name = [mark.locality, mark.administrativeArea].compactMap { $0 }.joined(separator: ", ")
+            placeName = name.isEmpty ? nil : name
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

@@ -7,8 +7,7 @@ const RULES = {
   destination: /^[A-Z]{3}$/,
   date: /^\d{4}-\d{2}-\d{2}$/,
   airline: /^[A-Z0-9]{2,3}$/,
-  flight: /^\d{1,5}[A-Z]?$/, // adsbdb keeps ATC suffixes: IGO687C → 6E687C
-  market: /^[A-Z]{2}$/,
+  flight: /^\d{1,5}[A-Z]{0,2}$/, // adsbdb keeps ATC suffixes: IGO687C → 6E687C, BAW12AB → BA12AB
 };
 
 // "6E0687" / "687" / "687C" → "687"
@@ -16,7 +15,9 @@ const flightDigits = (number, airline) =>
   String(number ?? "").toUpperCase().replace(new RegExp(`^${airline}`), "").replace(/\D/g, "").replace(/^0+/, "");
 
 export default async function handler(req, res) {
-  const q = {};
+  // Device regions like "419" (Latin America) aren't Ignav markets; fall back to US rather than fail.
+  const market = String(req.query.market ?? "").toUpperCase();
+  const q = { market: /^[A-Z]{2}$/.test(market) ? market : "US" };
   for (const [key, rule] of Object.entries(RULES)) {
     q[key] = String(req.query[key] ?? "").toUpperCase();
     if (!rule.test(q[key])) {

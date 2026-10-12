@@ -35,6 +35,11 @@ test("matches an ATC-suffixed callsign to its flight number", async () => {
   assert.equal(res.body.matched, true);
 });
 
+test("two-letter suffix and non-ISO market still work", async () => {
+  const res = await call({ ...q, flight: "687AB", market: "419" }, [itinerary(4250, "6E", "687", "same")]);
+  assert.equal(res.body.matched, true);
+});
+
 test("falls back to the cheapest fare on the route", async () => {
   const res = await call(q, [itinerary(5000, "AI", "1", "a"), itinerary(3900, "AI", "655", "b")]);
   assert.equal(res.body.id, "b");

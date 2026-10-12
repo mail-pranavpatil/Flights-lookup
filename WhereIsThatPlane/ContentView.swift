@@ -21,7 +21,8 @@ struct ContentView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var model = HomeViewModel()
     @State private var detailsItem: RankedAircraft?
-    @State private var heroRoute: FlightRoute?
+    /// adsbdb routes by callsign (unverified; views check them with `Aircraft.verifiedRoute`).
+    @State private var routes: [String: FlightRoute] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
 
@@ -60,11 +61,15 @@ struct ContentView: View {
         .onChange(of: locationManager.locationError) { _, value in
             if let value { model.locationFailed(value) }
         }
-        .task(id: model.selected?.id) {
-            heroRoute = nil
-            guard let callsign = model.selected?.aircraft.knownCallsign else { return }
-            let route = await RouteLookupService().route(callsign: callsign)
-            if !Task.isCancelled { heroRoute = route }
+        .task(id: "\(model.lastUpdated?.timeIntervalSince1970 ?? 0)|\(model.selected?.id ?? "")") {
+            // Selected plane first, then the first few cards; one request at a time to respect adsbdb.
+            let lookup = RouteLookupService()
+            let wanted = ([model.selected].compactMap { $0 } + model.ranked.prefix(6)).compactMap(\.aircraft.knownCallsign)
+            for callsign in wanted where routes[callsign] == nil {
+                let route = await lookup.route(callsign: callsign)
+                if Task.isCancelled { return }
+                if let route { routes[callsign] = route }
+            }
         }
         .sheet(item: $detailsItem) { item in
             FlightDetailsView(initial: item, model: model, userLocation: locationManager.location, onRefresh: refresh)
@@ -75,9 +80,13 @@ struct ContentView: View {
 
     private func refresh() { Task { await model.refresh(using: locationManager) } }
 
+    private func route(for item: RankedAircraft) -> FlightRoute? {
+        item.aircraft.knownCallsign.flatMap { routes[$0] }
+    }
+
     @ViewBuilder private var hero: some View {
         if let item = model.selected {
-            HeroAircraftCard(item: item, route: heroRoute, isRefreshing: model.isRefreshing, onDiscover: { detailsItem = item }, onRefresh: refresh)
+            HeroAircraftCard(item: item, route: route(for: item), isRefreshing: model.isRefreshing, onDiscover: { detailsItem = item }, onRefresh: refresh)
         } else {
             switch model.state {
             case .locationPermissionRequired:
@@ -109,13 +118,14 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     ForEach(Array(model.ranked.prefix(12))) { item in
                         let isSelected = item.id == model.selected?.id
+                        let verified = item.aircraft.verifiedRoute(route(for: item))
                         Button {
                             withAnimation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.8)) { model.selectedHex = item.id }
                         } label: {
-                            NearbyAircraftCard(item: item, isSelected: isSelected)
+                            NearbyAircraftCard(item: item, isSelected: isSelected, route: verified)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(item.accessibilitySummary(route: nil))
+                        .accessibilityLabel(item.accessibilitySummary(route: verified))
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
@@ -410,6 +420,8 @@ private struct HeroStatusCard: View {
 struct NearbyAircraftCard: View {
     let item: RankedAircraft
     let isSelected: Bool
+    /// Pass only a route that passed `Aircraft.verifiedRoute`.
+    var route: FlightRoute? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -427,7 +439,12 @@ struct NearbyAircraftCard: View {
             Text(item.aircraft.knownCallsign ?? "Aircraft nearby")
                 .font(.headline).foregroundStyle(SkyPalette.ink)
                 .lineLimit(1).minimumScaleFactor(0.75)
-            Text("Route unknown").font(.caption).foregroundStyle(SkyPalette.slate)
+            if let route {
+                Text("\(route.origin.code) → \(route.destination.code)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(SkyPalette.ink)
+            } else {
+                Text("Route unknown").font(.caption).foregroundStyle(SkyPalette.slate)
+            }
             Spacer(minLength: 4)
             Text(item.distanceLabel).font(.subheadline.weight(.semibold)).foregroundStyle(SkyPalette.ink)
             if item.aircraft.altitudeFeet != nil {

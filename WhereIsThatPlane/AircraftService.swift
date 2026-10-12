@@ -25,7 +25,10 @@ struct ADSBLolService: AircraftProviding {
 struct RouteLookupService {
     func route(callsign: String) async -> FlightRoute? {
         guard !callsign.isEmpty else { return nil }
-        return await fetch(RouteResponse.self, path: "callsign/\(callsign)")?.response.flightroute
+        if let cached = await RouteCache.shared.get(callsign) { return cached }
+        let route = await fetch(RouteResponse.self, path: "callsign/\(callsign)")?.response.flightroute
+        await RouteCache.shared.set(callsign, route)
+        return route
     }
 
     func info(hex: String) async -> AircraftInfo? {
@@ -40,6 +43,21 @@ struct RouteLookupService {
         guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
         return try? JSONDecoder().decode(T.self, from: data)
     }
+}
+
+/// Shared by the home screen, cards and details so each callsign is looked up once per window.
+/// Misses ("no route" or a network failure, which look the same) expire sooner so they get retried.
+private actor RouteCache {
+    static let shared = RouteCache()
+    private var entries: [String: (route: FlightRoute?, at: Date)] = [:]
+
+    func get(_ callsign: String) -> FlightRoute?? {
+        guard let entry = entries[callsign] else { return nil }
+        let ttl: TimeInterval = entry.route == nil ? 5 * 60 : 30 * 60
+        return Date().timeIntervalSince(entry.at) < ttl ? .some(entry.route) : nil
+    }
+
+    func set(_ callsign: String, _ route: FlightRoute?) { entries[callsign] = (route, Date()) }
 }
 
 enum FlightDataError: LocalizedError {

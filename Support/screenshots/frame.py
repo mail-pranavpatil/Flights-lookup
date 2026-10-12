@@ -8,11 +8,13 @@ import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-# App Store Connect slots (portrait). Apple scales these down for the smaller sizes.
+# Every App Store Connect slot (portrait), folder named after the slot as ASC labels it.
 SLOTS = {
-    "iphone-6.9": ("iphone", (1320, 2868)),
-    "iphone-6.5": ("iphone", (1284, 2778)),
-    "ipad-13": ("ipad", (2064, 2752)),
+    "iPhone 6.9in - 1320x2868": ("iphone", (1320, 2868)),
+    "iPhone 6.5in - 1284x2778": ("iphone", (1284, 2778)),
+    "iPhone 6.3in - 1206x2622": ("iphone", (1206, 2622)),
+    "iPhone 6.1in - 1179x2556": ("iphone", (1179, 2556)),
+    "iPad 13in - 2064x2752": ("ipad", (2064, 2752)),
 }
 
 # Upload order + captions.

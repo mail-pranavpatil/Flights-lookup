@@ -541,7 +541,7 @@ struct SkyActivityCard: View {
 // MARK: - Sky alerts
 
 struct SkyAlertsSettingsRow: View {
-    @AppStorage("skyAlertsEnabled") private var enabled = false
+    @AppStorage(SkyAlerts.enabledKey) private var enabled = false
     @State private var status: UNAuthorizationStatus = .notDetermined
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -564,7 +564,7 @@ struct SkyAlertsSettingsRow: View {
                 .font(.footnote.weight(.semibold))
                 .frame(minHeight: 44)
             }
-            Text("Background alerts need our server, which isn't connected yet, so no alerts will arrive for now.")
+            Text("iOS decides when the app can check in the background, so alerts may be delayed or missed. Real-time alerts need our server, which is coming later.")
                 .font(.caption).foregroundStyle(SkyPalette.slate)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -584,14 +584,14 @@ struct SkyAlertsSettingsRow: View {
     /// Permission is requested only after the user opts in.
     private func setEnabled(_ on: Bool) {
         enabled = on
-        guard on else { return }
+        guard on else { SkyAlerts.cancel(); return }
         Task {
             let center = UNUserNotificationCenter.current()
             if await center.notificationSettings().authorizationStatus == .notDetermined {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound])
             }
             await reloadStatus()
-            if status == .denied { enabled = false }
+            if status == .denied { enabled = false } else { SkyAlerts.schedule() }
         }
     }
 }

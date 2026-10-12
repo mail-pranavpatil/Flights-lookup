@@ -225,6 +225,13 @@ enum FunFactsSelfCheck {
         assert(!plane(track: 90, alt: 35_000, lat: 5, lon: 5).routeMatches(route))
         assert(!plane(track: 270, alt: 35_000, lon: 5).routeMatches(route))
         assert(!plane(track: 90, alt: 35_000, lon: 20).routeMatches(route))
+
+        // Sky alerts cooldown.
+        let now = Date()
+        assert(SkyAlerts.shouldAlert(hex: "a", now: now, lastAlertAt: nil, notifiedHexes: []))
+        assert(!SkyAlerts.shouldAlert(hex: "a", now: now, lastAlertAt: nil, notifiedHexes: ["a"]))
+        assert(!SkyAlerts.shouldAlert(hex: "b", now: now, lastAlertAt: now.addingTimeInterval(-60), notifiedHexes: []))
+        assert(SkyAlerts.shouldAlert(hex: "b", now: now, lastAlertAt: now.addingTimeInterval(-SkyAlerts.cooldown - 1), notifiedHexes: []))
     }
 }
 #endif

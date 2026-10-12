@@ -37,6 +37,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         location = locations.last
         locationError = nil
+        if let last = locations.last { SkyAlerts.saveLocation(last.coordinate) }
         guard let last = locations.last, !geocoder.isGeocoding else { return }
         Task {
             guard let mark = try? await geocoder.reverseGeocodeLocation(last).first else { return }

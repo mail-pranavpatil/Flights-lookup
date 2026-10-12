@@ -17,6 +17,7 @@ struct FlightDetailsView: View {
     private var current: RankedAircraft { model.ranked.first { $0.id == initial.id } ?? initial }
     private var aircraft: Aircraft { current.aircraft }
     private var stillInRange: Bool { model.ranked.contains { $0.id == initial.id } }
+    private var verified: FlightRoute? { aircraft.verifiedRoute(route) }
 
     var body: some View {
         ZStack {
@@ -83,7 +84,7 @@ struct FlightDetailsView: View {
     }
 
     @ViewBuilder private var routeSection: some View {
-        if let route {
+        if let route = verified {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     airportLabel("FROM", route.origin, alignment: .leading)
@@ -106,14 +107,18 @@ struct FlightDetailsView: View {
                             .font(.subheadline).foregroundStyle(SkyPalette.ink)
                     }
                 }
-                Text("Route looked up by callsign in the adsbdb database. It may be out of date.")
+                Text("Route looked up by callsign in the adsbdb database and checked against the plane's live position and heading.")
                     .font(.caption).foregroundStyle(SkyPalette.slate)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(18)
             .background(SkyPalette.cardWhite, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         } else if isLoading {
             HStack(spacing: 10) { ProgressView().tint(SkyPalette.ink); Text("Looking up the route…") }
                 .font(.subheadline).foregroundStyle(SkyPalette.slate)
+        } else if route != nil {
+            Text("Route couldn't be confirmed. The scheduled route for this callsign doesn't match where the plane is or where it's heading, so we're not showing it.")
+                .font(.subheadline).foregroundStyle(SkyPalette.slate).fixedSize(horizontal: false, vertical: true)
         } else {
             Text("Route not identified. Private, cargo, training and military flights often don't publish one.")
                 .font(.subheadline).foregroundStyle(SkyPalette.slate).fixedSize(horizontal: false, vertical: true)
@@ -133,7 +138,7 @@ struct FlightDetailsView: View {
     @ViewBuilder private var flightMap: some View {
         if let planeCoordinate = aircraft.coordinate {
             Map(interactionModes: []) {
-                if let route {
+                if let route = verified {
                     MapPolyline(coordinates: [route.origin.coordinate, route.destination.coordinate], contourStyle: .geodesic)
                         .stroke(SkyPalette.gold, style: StrokeStyle(lineWidth: 3, dash: [6, 5]))
                     Marker(route.origin.code, systemImage: "airplane.departure", coordinate: route.origin.coordinate).tint(SkyPalette.ink)
@@ -170,8 +175,8 @@ struct FlightDetailsView: View {
             detailRow("Distance from you", current.distanceLabel)
             if let lastUpdated = model.lastUpdated {
                 Divider().overlay(SkyPalette.divider)
-                // ponytail: fetch time stands in for position age; decode ADSB.lol `seen_pos` for the exact age.
-                detailRow("Position updated", lastUpdated.formatted(date: .omitted, time: .shortened))
+                let seenAt = lastUpdated.addingTimeInterval(-(aircraft.seen_pos ?? 0))
+                detailRow("Position seen", seenAt.formatted(.relative(presentation: .numeric)))
             }
         }
         .padding(18)
@@ -186,7 +191,7 @@ struct FlightDetailsView: View {
         if let d = aircraft.compassDirection { facts.append(("location.north.line.fill", "It's flying toward the \(d).")) }
         let km = current.distanceKM
         facts.append(("figure.walk", "It's \(km.formatted(.number.precision(.fractionLength(1)))) km from you. That's about \(Int((km * 1000 / 105).rounded()).formatted()) football fields!"))
-        if let route {
+        if let route = verified {
             let km = route.totalKM
             facts.append(("map.fill", "This whole trip is \(Int(km.rounded()).formatted()) km. A car would need about \(Int((km / 90).rounded())) hours of driving (if there were a road)!"))
             if let airline = route.airline { facts.append(("building.2.fill", "\(airline.name)\(airline.country.map { " comes from \($0)" } ?? " flies this plane").")) }

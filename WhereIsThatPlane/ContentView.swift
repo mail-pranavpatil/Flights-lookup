@@ -267,6 +267,8 @@ struct HeroAircraftCard: View {
     let onDiscover: () -> Void
     let onRefresh: () -> Void
 
+    private var verifiedRoute: FlightRoute? { item.aircraft.verifiedRoute(route) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -292,13 +294,13 @@ struct HeroAircraftCard: View {
                             .font(.system(.title, design: .rounded, weight: .bold))
                             .foregroundStyle(SkyPalette.cardWhite)
                             .lineLimit(1).minimumScaleFactor(0.7)
-                        if let route {
+                        if let route = verifiedRoute {
                             Text("\(route.origin.city) → \(route.destination.city)")
                                 .font(.headline).foregroundStyle(SkyPalette.gold)
-                            Text("Scheduled route for this callsign")
+                            Text("Route matches live position")
                                 .font(.caption).foregroundStyle(SkyPalette.cardWhite.opacity(0.6))
                         } else {
-                            Text("Route not identified")
+                            Text(route == nil ? "Route not identified" : "Route couldn't be confirmed")
                                 .font(.subheadline).foregroundStyle(SkyPalette.cardWhite.opacity(0.65))
                         }
                     }
@@ -318,7 +320,7 @@ struct HeroAircraftCard: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.accessibilitySummary(route: route))
+            .accessibilityLabel(item.accessibilitySummary(route: verifiedRoute))
 
             Button(action: onDiscover) {
                 HStack {
@@ -579,7 +581,7 @@ struct SkyAlertsSettingsRow: View {
 
 #if DEBUG
 private let previewPlane = RankedAircraft(
-    aircraft: Aircraft(hex: "preview1", flight: "AIC101 ", lat: 18.6, lon: 73.9, alt_baro: .number(32_000), gs: 450, track: 45, t: "A20N", desc: nil, ownOp: nil),
+    aircraft: Aircraft(hex: "preview1", flight: "AIC101 ", lat: 18.6, lon: 73.9, alt_baro: .number(32_000), gs: 450, track: 45, t: "A20N", desc: nil, ownOp: nil, seen_pos: 2),
     distanceKM: 4.2)
 
 #Preview("Hero card") {

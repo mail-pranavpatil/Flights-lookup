@@ -12,6 +12,8 @@ struct Aircraft: Identifiable, Decodable, Hashable {
     let t: String?
     let desc: String?
     let ownOp: String?
+    /// Seconds since ADSB.lol last received a position for this aircraft.
+    let seen_pos: Double?
 
     var id: String { hex }
     /// The broadcast callsign, or nil when none was sent. A callsign isn't necessarily a flight number.
@@ -162,13 +164,37 @@ extension Aircraft {
         guard let kmh = speedKMH, kmh > 50 else { return nil }
         return Int((kmLeft / kmh * 60).rounded())
     }
+
+    /// adsbdb routes come from a callsign database and can be stale. Only trust one if the plane is
+    /// near the origin→destination path, between the two, and (when known) heading toward the destination.
+    func routeMatches(_ route: FlightRoute) -> Bool {
+        guard let coordinate else { return false }
+        let here = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let earthKM = 6_371.0
+        let flownKM = route.origin.location.distance(from: here) / 1_000
+        let leftKM = here.distance(from: route.destination.location) / 1_000
+        guard flownKM + leftKM <= route.totalKM + 100 else { return false }
+        let toPlane = RankedAircraft.bearing(from: route.origin.coordinate, to: coordinate) * .pi / 180
+        let toDest = RankedAircraft.bearing(from: route.origin.coordinate, to: route.destination.coordinate) * .pi / 180
+        let crossTrackKM = abs(asin(sin(flownKM / earthKM) * sin(toPlane - toDest))) * earthKM
+        guard crossTrackKM <= 100 else { return false }
+        guard let track else { return true }
+        let bearingToDest = RankedAircraft.bearing(from: coordinate, to: route.destination.coordinate)
+        let turn = abs((track - bearingToDest + 540).truncatingRemainder(dividingBy: 360) - 180)
+        return turn <= 60
+    }
+
+    /// The route only if it passes `routeMatches`.
+    func verifiedRoute(_ route: FlightRoute?) -> FlightRoute? {
+        route.flatMap { routeMatches($0) ? $0 : nil }
+    }
 }
 
 #if DEBUG
 enum FunFactsSelfCheck {
     static func run() {
         func plane(track: Double?, alt: Double?, lat: Double = 0, lon: Double = 0) -> Aircraft {
-            Aircraft(hex: "x", flight: nil, lat: lat, lon: lon, alt_baro: alt.map { .number($0) }, gs: 450, track: track, t: nil, desc: nil, ownOp: nil)
+            Aircraft(hex: "x", flight: nil, lat: lat, lon: lon, alt_baro: alt.map { .number($0) }, gs: 450, track: track, t: nil, desc: nil, ownOp: nil, seen_pos: nil)
         }
         assert(plane(track: 0, alt: nil).compassDirection == "north")
         assert(plane(track: 350, alt: nil).compassDirection == "north")
@@ -189,6 +215,16 @@ enum FunFactsSelfCheck {
         assert(!RankedAircraft(aircraft: plane(track: nil, alt: nil), distanceKM: 3).isLikelyOverhead)
         assert(!RankedAircraft(aircraft: plane(track: nil, alt: 30_000), distanceKM: 20).isLikelyOverhead)
         assert(plane(track: nil, alt: nil).knownCallsign == nil)
+
+        // Elevation-angle overhead rule.
+        assert(RankedAircraft(aircraft: plane(track: nil, alt: 35_000), distanceKM: 10).isLikelyOverhead)
+        assert(!RankedAircraft(aircraft: plane(track: nil, alt: 3_000), distanceKM: 7).isLikelyOverhead)
+
+        // Route plausibility: on path heading to B passes; off path or flying away fails.
+        assert(plane(track: 90, alt: 35_000, lon: 5).routeMatches(route))
+        assert(!plane(track: 90, alt: 35_000, lat: 5, lon: 5).routeMatches(route))
+        assert(!plane(track: 270, alt: 35_000, lon: 5).routeMatches(route))
+        assert(!plane(track: 90, alt: 35_000, lon: 20).routeMatches(route))
     }
 }
 #endif

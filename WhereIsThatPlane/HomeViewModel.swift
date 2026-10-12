@@ -16,8 +16,15 @@ struct RankedAircraft: Identifiable, Hashable {
     /// Matches AircraftRanker's 45 km cutoff, so every ranked plane fits on the radar.
     static let radarRangeKM = 45.0
 
-    // ponytail: fixed 8 km cutoff for "overhead"; tune with real sighting feedback.
-    var isLikelyOverhead: Bool { distanceKM < 8 && aircraft.altitudeFeet != nil }
+    // ponytail: fixed 30° elevation cutoff, the one tuning knob; adjust with real sighting feedback.
+    static let overheadElevationDegrees = 30.0
+
+    /// Angle above the horizon from the user, ignoring terrain height (altitude is barometric).
+    var elevationDegrees: Double? {
+        guard let meters = aircraft.altitudeMeters, meters > 0 else { return nil }
+        return atan2(meters, max(distanceKM * 1_000, 1)) * 180 / .pi
+    }
+    var isLikelyOverhead: Bool { (elevationDegrees ?? 0) >= Self.overheadElevationDegrees }
     var confidenceLabel: String { isLikelyOverhead ? "LIKELY OVERHEAD" : "NEARBY FLIGHT" }
     var confidenceNote: String { isLikelyOverhead ? "Likely overhead — not visually confirmed" : "Best match based on nearby aircraft position" }
     var distanceLabel: String { "\(distanceKM.formatted(.number.precision(.fractionLength(1)))) km away" }

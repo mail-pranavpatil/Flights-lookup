@@ -60,6 +60,7 @@ struct AircraftRanker {
         aircraft.compactMap { plane in
             guard let coordinate = plane.coordinate else { return nil }
             if let altitude = plane.altitudeFeet, altitude < 500 { return nil }
+            if let age = plane.seen_pos, age > 60 { return nil }
             let planeLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
             let km = location.distance(from: planeLocation) / 1_000
             guard km <= 45 else { return nil }
